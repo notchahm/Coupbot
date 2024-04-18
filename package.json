@@ -1,0 +1,30 @@
+{
+  "name": "coup_bot",
+  "version": "0.0.1",
+  "description": "Simulates the Coup card game",
+  "main": "CoupServer.js",
+  "private": true,
+  "scripts": {
+    "start": "forever start CoupServer.js",
+    "stop": "forever stop CoupServer.js",
+    "dev": "nodemon app/GameServer.js",
+    "test": "mocha"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://git.notchahm.com/notar_server.git"
+  },
+  "author": "Chahm An <notchahm@gmail.com>",
+  "license": "private",
+  "homepage": "https://notchahm.com/notar",
+  "devDependencies": {
+    "forever": "4.0.3",
+    "nodemon": "3.1.0",
+    "mocha": "10.3.0"
+  },
+  "dependencies": {
+    "express": "4.18.3",
+    "mongodb": "6.5.0",
+    "ws": "8.16.0"
+  }
+}

@@ -3,6 +3,7 @@
 
 const { MongoClient } = require('mongodb');
 const crypto = require('crypto');
+const mongo_mock = require('mongo-mock');
 
 // This is the JavaScript model object for the game, which serves as an abstraction for the data interface
 // The current implementation uses a MongoDB as persistent storage of the game state
@@ -32,6 +33,21 @@ class CoupSession
 	get current_turn()
 	{
 		return this.db_entry.current_turn;
+	}
+
+	get current_stage()
+	{
+		return this.db_entry.current_stage;
+	}
+
+	get current_action()
+	{
+		return this.db_entry.current_action;
+	}
+
+	get current_target()
+	{
+		return this.db_entry.current_target;
 	}
 
 	get players()
@@ -102,7 +118,7 @@ class CoupSession
 
 	take_coins(player_index, num_coins)
 	{
-		console.log("take coins: player", player_index, num_coins);
+		//console.log("take coins: player", player_index, num_coins);
 		let result_promise = new Promise( (resolve, reject) =>
 		{
 			this.pull_db( (session, error) =>
@@ -114,16 +130,17 @@ class CoupSession
 				if (session.treasury >= num_coins)
 				{
 					session.treasury -= num_coins;
+					session.message = num_coins + " coins taken from treasury!";
 					session.players[player_index].coins += num_coins;
 				}
 				else
 				{
 					// Not enough coins in treasury, just take remainder
 					session.players[player_index].coins += session.treasury;
+					session.message = session.treasury + " coins taken from treasury!";
 					session.treasury = 0;
 				}
 				this.db_entry = session;
-				console.log(session);
 				this.push_db( (push_result) => { resolve(session); });
 			});
 		});
@@ -132,7 +149,7 @@ class CoupSession
 
 	pay_coins(player_index, num_coins)
 	{
-		console.log("pay coins: player", player_index, num_coins);
+		//console.log("pay coins: player", player_index, num_coins);
 		let result_promise = new Promise( (resolve, reject) =>
 		{
 			this.pull_db( (session, error) =>
@@ -161,7 +178,7 @@ class CoupSession
 
 	steal_coins(player_index, num_coins, action_parameters)
 	{
-		console.log("steal coins: player", player_index, action_parameters);
+		//console.log("steal coins: player", player_index);
 		let result_promise = new Promise( (resolve, reject) =>
 		{
 			if (num_coins <= 0)
@@ -202,19 +219,24 @@ class CoupSession
 		return result_promise;
 	}
 
-	exchange_card(player_index, num_cards)
+	exchange_cards(player_index, num_cards, action_parameters)
 	{
 		let result_promise = new Promise( (resolve, reject) =>
 		{
-			this.draw_card(null,player_index,num_cards).then( (result) =>
+			this.draw_card(null,player_index,num_cards).then( (session) =>
 			{
-				this.advance_stage("lose_influence", action_parameters).then( (session) =>
+				session.num_cards_before_exchange = session.players[player_index].cards.length - num_cards;
+				this.db_entry = session;
+				this.push_db( (push_result) => 
 				{
-					resolve(session);
-				})
-				.catch((error) =>
-				{
-					reject(error);
+					this.advance_stage("lose_influence", action_parameters).then( (session) =>
+					{
+						resolve(session);
+					})
+					.catch((error) =>
+					{
+						reject(error);
+					});
 				});
 			})
 			.catch( (error) =>
@@ -276,6 +298,7 @@ class CoupSession
 
 	find_card(session, player_index, character_type)
 	{
+		//console.log(session.players, player_index);
 		for (let card_index = 0; card_index < session.players[player_index].cards.length; card_index++)
 		{
 			if (session.players[player_index].cards[card_index] == character_type)
@@ -297,7 +320,7 @@ class CoupSession
 				{
 					reject(error);
 				}
-				let card_index = find_card(session, player_index, character_type);
+				let card_index = this.find_card(session, player_index, character_type);
 				if (card_index != null)
 				{
 					session.players[player_index].cards.splice(card_index,1);
@@ -353,10 +376,17 @@ class CoupSession
 				let action_description = "action [" + action_parameters.name + "]";
 				if (action_parameters.target)
 				{
-					session.current_target = action_parameters.target;
+					session.current_target = parseInt(action_parameters.target);
 					action_description += " with target [" + action_parameters.target + "]";
 				}
-				action_description += " proved by [" + action_parameters.proved_by + "].";
+				if (action_parameters.proved_by)
+				{
+					action_description += " proved by [" + action_parameters.proved_by + "]";
+				}
+				else
+				{
+					action_description += " which can not be challenged";
+				}
 				if (new_stage == "challenge")
 				{
 					session.message = "Player " + session.current_turn + " has chosen " + action_description + ". Any player may issue a challenge, or submit no challenges to continue";
@@ -386,7 +416,7 @@ class CoupSession
 					else if (action_parameters.target)
 					{
 						// Coup or assassinate
-						session.message = action_parameters.name + " succeeded, player " + action_parmeters.target + " lose influence";
+						session.message = action_parameters.name + " succeeded, player " + action_parameters.target + " lose influence";
 					}
 				}
 				else if (new_stage == "resolve_action")
@@ -417,6 +447,16 @@ class CoupSession
 					// Skip players who have no cards left
 					new_turn = (new_turn + 1) % session.num_players;
 				}
+				if (session.current_target)
+				{
+					delete session.current_target;
+				}
+                if (session.num_cards_before_exchange)
+				{
+					delete session.num_cards_before_exchange;
+				}
+				session.current_stage = 'action';
+				session.current_action = 'pending';
 				session.current_turn = new_turn;
 				session.message += " Player " + session.current_turn + " take action."
 				this.db_entry = session;
@@ -456,17 +496,51 @@ class CoupSession
 
 class CoupModel
 {
-	constructor()
+	constructor(server, db_uri)
 	{
-		//private members
-		this.db_uri = "mongodb://127.0.0.1:27017";
-		this.client = new MongoClient(this.db_uri);
-		this.client.connect();
-		this.db = this.client.db("coup");
-		this.sessions = this.db.collection("sessions");
-		console.log('Connected to mongo db at ' + this.db_uri);
+		if (db_uri == null)
+		{
+			this.db_uri = "mongodb://127.0.0.1:27017/coup";
+			this.mock_flag = true;	//Use mock db by default instead of assuming external mongodb server
+		}
+		else
+		{
+			this.db_uri = db_uri + "/coup";
+			this.mock_flag = false;
+		}
+		if (this.mock_flag)
+		{
+			this.client = mongo_mock.MongoClient;
+			this.client.persist="mongo.js";
+			this.client.connect(this.db_uri, {}, (error, client) =>
+			{
+				if (error)
+				{
+					console.log(error);
+				}
+				else
+				{
+					console.log("mock db connected");
+					this.db = client.db();
+					this.sessions = this.db.collection("sessions");
+				}
+			});
+		}
+		else
+		{
+			this.client = new MongoClient(this.db_uri);
+			this.client.connect().then( () =>
+			{
+				console.log("mongodb connected at " + this.db_uri);
+				this.db = this.client.db();
+				this.sessions = this.db.collection("sessions");
+			})
+			.catch( (error) =>
+			{
+				console.log(error);
+			});
+		};
 	}
-
 
 	check_victory()
 	{
@@ -499,7 +573,6 @@ class CoupModel
 
 	get_session(session_id, callback)
 	{
-		console.log("get session", session_id);
 		this.sessions.find({"_id":session_id}).toArray()
 		.then( (session_list) =>
 		{
@@ -518,11 +591,20 @@ class CoupModel
 		return this.sessions.find({}).toArray();
 	}
 
-	end_session(session_id)
+	end_session(session_id, callback)
 	{
-		console.log("end session", {"_id":session_id});
-		let delete_result = this.sessions.deleteOne({"_id":session_id});
-		return delete_result;
+		//console.log("end session", {"_id":session_id});
+		this.sessions.deleteOne({"_id":session_id})
+		.then( (delete_result) =>
+		{
+			delete_result["_id"] = session_id;
+			callback({ "_id": session_id, "num_deleted": delete_result.deletedCount, "result": delete_result.result}, null);
+		})
+		.catch((error) =>
+		{
+			console.log(error);
+			callback({}, error);
+		});
 	}
 
 	end_expired()

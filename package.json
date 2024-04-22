@@ -5,26 +5,26 @@
   "main": "CoupServer.js",
   "private": true,
   "scripts": {
-    "start": "forever start CoupServer.js",
+    "start": "forever start CoupServer.js mongodb://127.0.0.1:27017",
     "stop": "forever stop CoupServer.js",
-    "dev": "nodemon app/GameServer.js",
-    "test": "mocha"
+    "dev": "nodemon CoupServer.js --ignore mongo.js",
+    "test": "jest"
   },
   "repository": {
     "type": "git",
-    "url": "https://git.notchahm.com/notar_server.git"
+    "url": "https://github.com/notchahm/Coupbot"
   },
   "author": "Chahm An <notchahm@gmail.com>",
   "license": "private",
-  "homepage": "https://notchahm.com/notar",
+  "homepage": "https://notchahm.com/coup",
   "devDependencies": {
-    "forever": "4.0.3",
-    "nodemon": "3.1.0",
-    "mocha": "10.3.0"
+    "forever": "^4.0.3",
+    "jest": "^29.7.0",
+    "nodemon": "^3.1.0"
   },
   "dependencies": {
-    "express": "4.18.3",
-    "mongodb": "6.5.0",
-    "ws": "8.16.0"
+    "express": "^4.19.2",
+    "mongo-mock": "^4.2.0",
+    "mongodb": "^6.5.0"
   }
 }

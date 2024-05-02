@@ -91,15 +91,15 @@ function CoupController()
 					response.send(error);
 					return;
 				}
-				console.log("handle_action", action, "player_index", player_index, "current turn", session.current_turn);
+				console.log("handle_action [" + action + "]. player_index: " + player_index + ". current turn: " + session.current_turn);
 				if (player_index != session.current_turn)
 				{
-					console.log(player_index, "!=", session.current_turn);
+					console.log("Error: not player " + player_index + " turn. player " + session.current_turn + " turn.");
 					response.send("{\"Error\":\"Not current player's turn\"}");
 				}
 				else if (session.current_stage != "action")
 				{
-					response.send("{\"Error\":\"[" + session.current_stage + "] is not the correct stage for taking action\"}");
+					response.send("{\"Error\":\"Not allowed to take action. must [" + session.current_stage + "]\"}");
 				}
 				else if (!action_parameters.target && (action == "coup" || action == "assassinate" || action == "steal"))
 				{

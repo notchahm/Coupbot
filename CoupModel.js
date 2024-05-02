@@ -311,7 +311,7 @@ class CoupSession
 
 	lose_influence(player_index, character_type, reveal_flag)
 	{
-		console.log("lose influence: player", player_index, character_type);
+		console.log("lose influence: Player", player_index, character_type);
 		let result_promise = new Promise( (resolve, reject) =>
 		{
 			this.pull_db( (session, error) =>

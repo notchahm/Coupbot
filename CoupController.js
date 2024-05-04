@@ -305,7 +305,9 @@ function CoupController()
 				}
 				else if (session.current_stage != "counteract")
 				{
-					response.send("Error: [" + session.current_stage + "]  is not the correct stage for taking counteraction");
+					const error_message = "Error: [" + session.current_stage + "]  is not the correct stage for taking counteraction";
+					console.log(error_message);
+					response.send(error_message);
 				}
 				let proved_flag = false;
 				let proved_by = null;
@@ -332,10 +334,10 @@ function CoupController()
 						});
 					});
 				}
-				else
+				else if ("blocking_influence" in request.query)
 				{
 					let blocking_influence = request.query.blocking_influence;
-					if (blocking_influence in action_parameters.blocked_by)
+					if (action_parameters.blocked_by.includes(blocking_influence) || blocking_influence == action_parameters.blocked_by)
 					{
 						session.advance_turn(action_parameters).then( (game_state) =>
 						{
@@ -345,8 +347,16 @@ function CoupController()
 					}
 					else
 					{
-						response.send("Action [" + session.entry.current_action + "] can't be blocked by " + blocking_influence);
+						const error_message = "Action [" + session.entry.current_action + "] can't be blocked by " + blocking_influence + ". It can blocked by " + action_parameters.blocked_by;
+						console.log(error_message);
+						response.send(error_message);
 					}
+				}
+				else
+				{
+					const error_message = "Blocking_influence must be supplied as request_query for counteraction";
+					console.log(error_message);
+					response.send(error_message);
 				}
 			});
 		}
@@ -380,7 +390,7 @@ function CoupController()
 				let player_index = request.query.player;
 				let character = request.query.character;
 				let reveal_flag = false;
-				if (session.entry.current_target && (session.entry.current_action == "coup" || session.entry.current_action == "assassinate"))
+				if ("current_target" in session.entry && (session.entry.current_action == "coup" || session.entry.current_action == "assassinate"))
 				{
 					reveal_flag = true;
 				}
@@ -390,6 +400,7 @@ function CoupController()
 				}
 				else
 				{
+					console.log("invalid lose influence");
 					response.send("{\"Error\":\"lose_influence only valid after successful coup, assassinate, or exchange\"}");
 					return;
 				}

@@ -105,7 +105,7 @@ function CoupController()
 				{
 					response.send("{\"Error\":\"Action [" + action + "] requires a target parameter\"}");
 				}
-				else if (session.players[player_index].coins > 10 && action_parameters.cost != 7)
+				else if (session.players[player_index].coins >= 10 && action_parameters.cost != 7)
 				{
 					response.send("{\"Error\":\"Player with 10 or more coins must coup\"}");
 				}

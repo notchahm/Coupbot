@@ -274,7 +274,7 @@ class CoupSession
 
 	prompt_lose_influence(player_index, action_parameters)
 	{
-		console.log("lose influence", player_index);
+		console.log("prompt lose influence", player_index);
 		let result_promise = new Promise( (resolve, reject) =>
 		{
 			this.pull_db( (session, error) =>

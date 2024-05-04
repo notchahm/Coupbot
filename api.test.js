@@ -244,7 +244,7 @@ test('assassinate action test', async () =>
 	// After success, number of coins sould be 3, target asked to lose influence
 	expect( counteract_result['current_stage'] ).toBe('lose_influence');
 	expect( counteract_result['players'][0].coins ).toBe(0);
-	// now lose_influence needs to be called twice to get back down to 2 cards
+	// now lose_influence needs to be called by the target to complete the assassinate action
 	const lose_influence_result = await call_api(session_id + "/lose_influence?player=1&character=" + challenge_result.players[1].cards[0]);
 	expect( lose_influence_result['_id'] ).toEqual(session_id);
 	expect( lose_influence_result.players[1].cards.length ).toEqual(1);
@@ -285,7 +285,7 @@ test('coup action test', async () =>
 	// After success, number of coins sould be 1, target asked to lose influence
 	expect( coup_result['current_stage'] ).toBe('lose_influence');
 	expect( coup_result['players'][0].coins ).toBe(1);
-	// now lose_influence needs to be called twice to get back down to 2 cards
+	// now lose_influence needs to be called by the target to complete the coup action
 	const lose_influence_result = await call_api(session_id + "/lose_influence?player=1&character=" + coup_result.players[1].cards[0]);
 	expect( lose_influence_result['_id'] ).toEqual(session_id);
 	expect( lose_influence_result.players[1].cards.length ).toEqual(1);
@@ -293,4 +293,124 @@ test('coup action test', async () =>
 	expect( lose_influence_result['current_turn'] ).toBe(1);
 	expect( lose_influence_result['current_stage'] ).toBe('action');
 	expect( lose_influence_result['current_action'] ).toBe('pending');
+
+    // Also check for side effects by retaliation from the next player
+	const coup_result_2 = await call_api(session_id + "/action/coup?player=1&target=0");
+	expect( coup_result_2['_id'] ).toEqual(session_id);
+	expect( coup_result_2['current_turn'] ).toBe(1);
+	expect( coup_result_2['current_action'] ).toBe('coup');
+	expect( coup_result_2['current_target'] ).toBe(0);
+	expect( coup_result_2['current_stage'] ).toBe('lose_influence');
+	expect( coup_result_2['players'][1].coins ).toBe(1);
+	const lose_influence_result_2 = await call_api(session_id + "/lose_influence?player=0&character=" + coup_result.players[0].cards[0]);
+	expect( lose_influence_result_2['_id'] ).toEqual(session_id);
+	expect( lose_influence_result_2.players[0].cards.length ).toEqual(1);
+	expect( lose_influence_result_2['current_turn'] ).toBe(2);
+	expect( lose_influence_result_2['current_stage'] ).toBe('action');
+	expect( lose_influence_result_2['current_action'] ).toBe('pending');
+
 }, 20000);
+
+test('block foreign aid test', async () =>
+{
+	const setup_result = await call_api("setup");
+	expect( setup_result['_id'] ).toBeDefined();
+	const session_id = setup_result['_id'];
+
+	const foreign_aid_result = await call_api(session_id + "/action/foreign_aid?player=0");
+	expect( foreign_aid_result['_id'] ).toEqual(session_id);
+	expect( foreign_aid_result['current_turn'] ).toBe(0);
+	expect( foreign_aid_result['current_action'] ).toBe('foreign_aid');
+	// foreign aid is a general action, so can not be challenged
+	expect( foreign_aid_result['current_stage'] ).toBe('counteract');
+	const counteract_result = await call_api(session_id + "/counteract?challenger=1&blocking_influence=Duke");
+	expect( counteract_result['_id'] ).toEqual(session_id);
+	// After successful block, coins remain at 2 (should not increase to 4)
+	expect( counteract_result['players'][0].coins ).toBe(2);
+	expect( counteract_result['current_turn'] ).toBe(1);
+	expect( counteract_result['current_stage'] ).toBe('action');
+	expect( counteract_result['current_action'] ).toBe('pending');
+});
+
+test('block assassinate test', async () =>
+{
+	const setup_result = await call_api("setup");
+	expect( setup_result['_id'] ).toBeDefined();
+	const session_id = setup_result['_id'];
+
+	// First do a dummy round where everyone takes income in order to get enough coins
+	for (let turn=0; turn<setup_result.players.length; turn++)
+	{
+		const income_result = await call_api(session_id + "/action/income?player="+turn);
+		expect( income_result['_id'] ).toEqual(session_id);
+		expect( income_result['players'][turn].coins ).toBe(3);
+	}
+
+	const assassinate_result = await call_api(session_id + "/action/assassinate?player=0&target=1");
+	expect( assassinate_result['_id'] ).toEqual(session_id);
+	expect( assassinate_result['current_turn'] ).toBe(0);
+	expect( assassinate_result['current_stage'] ).toBe('challenge');
+	expect( assassinate_result['current_action'] ).toBe('assassinate');
+	expect( assassinate_result['current_target'] ).toBe(1);
+
+	const challenge_result = await call_api(session_id + "/challenge");
+	expect( challenge_result['_id'] ).toEqual(session_id);
+	expect( challenge_result['current_stage'] ).toBe('counteract');
+	expect( challenge_result['current_target'] ).toBe(1);
+
+	const counteract_result = await call_api(session_id + "/counteract?challenger=1&blocking_influence=Contessa");
+	expect( counteract_result['_id'] ).toEqual(session_id);
+	// After successful block, coins are spent, but no influence lost
+	expect( counteract_result['players'][0].coins ).toBe(0);
+    expect( counteract_result.players[1].cards.length ).toEqual(2);
+	expect( counteract_result['current_turn'] ).toBe(1);
+	expect( counteract_result['current_stage'] ).toBe('action');
+	expect( counteract_result['current_action'] ).toBe('pending');
+});
+
+
+test('block steal test', async () =>
+{
+	const setup_result = await call_api("setup");
+	expect( setup_result['_id'] ).toBeDefined();
+	const session_id = setup_result['_id'];
+
+	const steal_result = await call_api(session_id + "/action/steal?player=0&target=1");
+	expect( steal_result['_id'] ).toEqual(session_id);
+	expect( steal_result['current_turn'] ).toBe(0);
+	expect( steal_result['current_stage'] ).toBe('challenge');
+	expect( steal_result['current_action'] ).toBe('steal');
+
+	const challenge_result = await call_api(session_id + "/challenge");
+	expect( challenge_result['_id'] ).toEqual(session_id);
+	expect( challenge_result['current_stage'] ).toBe('counteract');
+
+	const counteract_result = await call_api(session_id + "/counteract?challenger=1&blocking_influence=Captain");
+	expect( counteract_result['_id'] ).toEqual(session_id);
+	// After successful block, no coins stolen
+	expect( counteract_result['players'][0].coins ).toBe(2);
+	expect( counteract_result['players'][1].coins ).toBe(2);
+	expect( counteract_result['current_turn'] ).toBe(1);
+	expect( counteract_result['current_stage'] ).toBe('action');
+	expect( counteract_result['current_action'] ).toBe('pending');
+
+	const steal_result_2 = await call_api(session_id + "/action/steal?player=1&target=2");
+	expect( steal_result_2['_id'] ).toEqual(session_id);
+	expect( steal_result_2['current_turn'] ).toBe(1);
+	expect( steal_result_2['current_stage'] ).toBe('challenge');
+	expect( steal_result_2['current_action'] ).toBe('steal');
+
+	const challenge_result_2 = await call_api(session_id + "/challenge");
+	expect( challenge_result_2['_id'] ).toEqual(session_id);
+	expect( challenge_result_2['current_stage'] ).toBe('counteract');
+
+	const counteract_result_2 = await call_api(session_id + "/counteract?challenger=2&blocking_influence=Ambassador");
+	expect( counteract_result_2['_id'] ).toEqual(session_id);
+	// After successful block, no coins stolen
+	expect( counteract_result_2['players'][1].coins ).toBe(2);
+	expect( counteract_result_2['players'][2].coins ).toBe(2);
+	expect( counteract_result_2['current_turn'] ).toBe(2);
+	expect( counteract_result_2['current_stage'] ).toBe('action');
+	expect( counteract_result_2['current_action'] ).toBe('pending');
+}, 10000);
+

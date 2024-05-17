@@ -73,7 +73,7 @@ function CoupController()
 			let [base, session_id, stage, action] = request._parsedUrl.pathname.split("/");
 			let player_index = request.query.player;
 			let target_index = request.query.target;
-			let action_parameters = action_params[action];
+			let action_parameters = Object.create(action_params[action]);	//deep copy
 			if (!action_parameters)
 			{
 				response.send("Invalid action");
@@ -99,15 +99,21 @@ function CoupController()
 				}
 				else if (session.current_stage != "action")
 				{
-					response.send("{\"Error\":\"Not allowed to take action. must [" + session.current_stage + "]\"}");
+					const error_string = "{\"Error\":\"Not allowed to take action. must [" + session.current_stage + "]\"}";
+					console.log(error_string);
+					response.send(error_string);
 				}
 				else if (!action_parameters.target && (action == "coup" || action == "assassinate" || action == "steal"))
 				{
-					response.send("{\"Error\":\"Action [" + action + "] requires a target parameter\"}");
+					const error_string = "{\"Error\":\"Action [" + action + "] requires a target parameter\"}";
+					console.log(error_string);
+					response.send(error_string);
 				}
 				else if (session.players[player_index].coins >= 10 && action_parameters.cost != 7)
 				{
-					response.send("{\"Error\":\"Player with 10 or more coins must coup\"}");
+					const error_string = "{\"Error\":\"Player with 10 or more coins must coup\"}";
+					console.log(error_string);
+					response.send(error_string);
 				}
 				else
 				{
@@ -182,7 +188,7 @@ function CoupController()
 			m_model.get_session(session_id, function(session, error)
 			{
 				let player_index = session.entry.current_turn;
-				let action_parameters = action_params[session.entry.current_action];
+				let action_parameters = Object.create(action_params[session.entry.current_action]);
 				console.log(session_id, "challenge", session.entry.current_action, "player", session.entry.current_turn);
 				if (error)
 				{
@@ -293,7 +299,7 @@ function CoupController()
 			m_model.get_session(session_id, function(session, error)
 			{
 				let player_index = session.entry.current_turn;
-				let action_parameters = action_params[session.entry.current_action];
+				let action_parameters = Object.create(action_params[session.entry.current_action]);
 				if (session.entry.current_target)
 				{
 					action_parameters.target = session.entry.current_target;
@@ -438,7 +444,7 @@ function CoupController()
 					}
 					else
 					{
-						let action_parameters = action_params[session.entry.current_action];
+						let action_parameters = Object.create(action_params[session.entry.current_action]);
 						session.advance_turn(action_parameters).then( (game_state) =>
 						{
 							response.send(game_state);

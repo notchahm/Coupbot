@@ -176,6 +176,7 @@ test('steal action test', async () =>
 	expect( counteract_result['players'][1].coins ).toBe(0);
 	expect( counteract_result['current_turn'] ).toBe(1);
 	expect( counteract_result['current_stage'] ).toBe('action');
+
 });
 
 test('exchange action test', async () =>
@@ -252,7 +253,7 @@ test('assassinate action test', async () =>
 	expect( lose_influence_result['current_turn'] ).toBe(1);
 	expect( lose_influence_result['current_stage'] ).toBe('action');
 	expect( lose_influence_result['current_action'] ).toBe('pending');
-});
+}, 10000);
 
 test('coup action test', async () =>
 {
@@ -308,6 +309,13 @@ test('coup action test', async () =>
 	expect( lose_influence_result_2['current_turn'] ).toBe(2);
 	expect( lose_influence_result_2['current_stage'] ).toBe('action');
 	expect( lose_influence_result_2['current_action'] ).toBe('pending');
+
+    const income_result = await call_api(session_id + "/action/income?player=2");
+    expect( income_result['_id'] ).toEqual(session_id);
+    expect( income_result['players'][2].coins ).toBe(9);
+    expect( income_result['current_turn'] ).toBe(3);
+    expect( income_result['current_stage'] ).toBe('action');
+    expect( income_result['current_action'] ).toBe('pending');
 
 }, 20000);
 

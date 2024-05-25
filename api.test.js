@@ -177,6 +177,16 @@ test('steal action test', async () =>
 	expect( counteract_result['current_turn'] ).toBe(1);
 	expect( counteract_result['current_stage'] ).toBe('action');
 
+	const steal_back_result = await call_api(session_id + "/action/steal?player=1&target=0");
+	expect( steal_back_result['_id'] ).toEqual(session_id);
+	expect( steal_back_result['current_turn'] ).toBe(1);
+	expect( steal_back_result['current_stage'] ).toBe('challenge');
+	expect( steal_back_result['current_action'] ).toBe('steal');
+
+	const challenge1_result = await call_api(session_id + "/challenge");
+	expect( challenge1_result['_id'] ).toEqual(session_id);
+	expect( challenge1_result['current_stage'] ).toBe('counteract');
+
 });
 
 test('exchange action test', async () =>
@@ -421,4 +431,91 @@ test('block steal test', async () =>
 	expect( counteract_result_2['current_stage'] ).toBe('action');
 	expect( counteract_result_2['current_action'] ).toBe('pending');
 }, 10000);
+
+test('challenge tax test', async () =>
+{
+	const setup_result = await call_api("setup?num_players=2");
+	expect( setup_result['_id'] ).toBeDefined();
+	const session_id = setup_result['_id'];
+
+    let game_state = setup_result;
+    let player0_cards = game_state.players[0].cards;
+    let player1_cards = game_state.players[1].cards;
+    //Keep on exchanging cards until player0 has a duke
+    while (!player0_cards.includes("Duke"))
+    {
+        let exchange_result = await call_api(session_id + "/action/exchange?player=0");
+        let challenge_result = await call_api(session_id + "/challenge");
+        let lose_influence_result = await call_api(session_id + "/lose_influence?player=0&character=" + player0_cards[0]);
+        lose_influence_result = await call_api(session_id + "/lose_influence?player=0&character=" + player0_cards[1]);
+
+        exchange_result = await call_api(session_id + "/action/exchange?player=1");
+        challenge_result = await call_api(session_id + "/challenge");
+        lose_influence_result = await call_api(session_id + "/lose_influence?player=1&character=" + player1_cards[0]);
+        lose_influence_result = await call_api(session_id + "/lose_influence?player=1&character=" + player1_cards[1]);
+        game_state = lose_influence_result;
+        player0_cards = game_state.players[0].cards;
+        player1_cards = game_state.players[1].cards;
+    }
+	// Player0 takes tax and has Duke to prove it
+	const tax_result = await call_api(session_id + "/action/tax?player=0");
+	//expect( tax_result['_id'] ).toEqual(session_id);
+	expect( tax_result['current_turn'] ).toBe(0);
+	expect( tax_result['current_stage'] ).toBe('challenge');
+	expect( tax_result['current_action'] ).toBe('tax');
+
+	// Player1 challenges and loses
+	const challenge_result = await call_api(session_id + "/challenge?challenger=1");
+	expect( challenge_result['_id'] ).toEqual(session_id);
+	const challenge_loser = Number(challenge_result.challenge_loser);
+	expect(challenge_loser).toBe(1);
+	const influence_to_lose = challenge_result.players[challenge_loser].cards[0];
+    const lose_influence_result = await call_api(session_id + "/lose_influence?player=" + challenge_loser + "&character=" + influence_to_lose);
+    expect( lose_influence_result.revealed_cards[0]).toBe(influence_to_lose);
+	// Tax should be successful after winning challenge, so 3 coins gained and no cards lost
+	expect( lose_influence_result['players'][0].coins ).toBe(5);
+	expect( lose_influence_result.players[0].cards.length ).toEqual(2);
+	expect( lose_influence_result.players[1].cards.length ).toEqual(1);
+	expect( lose_influence_result['current_turn'] ).toBe(1);
+	expect( lose_influence_result['current_stage'] ).toBe('action');
+	expect( lose_influence_result['current_action'] ).toBe('pending');
+
+	// Player 1 takes income as a passive action to advance the game back to player 0's turn
+    const income_result = await call_api(session_id + "/action/income?player=1");
+	expect( income_result['current_turn'] ).toBe(0);
+	expect( income_result['current_stage'] ).toBe('action');
+	expect( income_result['current_action'] ).toBe('pending');
+    game_state = income_result;
+    player0_cards = game_state.players[0].cards;
+    player1_cards = game_state.players[1].cards;
+    while (player0_cards.includes("Duke"))
+    {
+        let exchange_result = await call_api(session_id + "/action/exchange?player=0");
+        let challenge_result = await call_api(session_id + "/challenge");
+        let lose_influence_result = await call_api(session_id + "/lose_influence?player=0&character=" + player0_cards[0]);
+        lose_influence_result = await call_api(session_id + "/lose_influence?player=0&character=" + player0_cards[1]);
+
+        exchange_result = await call_api(session_id + "/action/exchange?player=1");
+        challenge_result = await call_api(session_id + "/challenge");
+        lose_influence_result = await call_api(session_id + "/lose_influence?player=1&character=" + player1_cards[0]);
+        lose_influence_result = await call_api(session_id + "/lose_influence?player=1&character=" + player1_cards[1]);
+        game_state = lose_influence_result;
+        player0_cards = game_state.players[0].cards;
+        player1_cards = game_state.players[1].cards;
+    }
+	// Now player 0 takes tax again but this time does not have a Duke
+    await call_api(session_id + "/action/tax?player=0");
+    const challenge_result_2 = await call_api(session_id + "/challenge?challenger=1");
+    const challenge_loser_2 = Number(challenge_result_2.challenge_loser);
+	expect(challenge_loser_2).toBe(0);
+    const influence_to_lose_2 = challenge_result.players[challenge_loser_2].cards[0];
+    const lose_influence_result_2 = await call_api(session_id + "/lose_influence?player=" + challenge_loser_2 + "&character=" + influence_to_lose_2);
+	// Tax should fail after losing challenge, so 0 coins gained and no cards lost
+	expect( lose_influence_result_2['players'][0].coins ).toBe(5);
+	expect( lose_influence_result_2.players[0].cards.length ).toEqual(1);
+	expect( lose_influence_result_2.players[1].cards.length ).toEqual(1);
+	expect( lose_influence_result_2['current_turn'] ).toBe(1);
+	expect( lose_influence_result_2['current_stage'] ).toBe('action');
+	expect( lose_influence_result_2['current_action'] ).toBe('pending');
+}, 30000);
 

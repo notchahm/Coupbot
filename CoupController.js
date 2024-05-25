@@ -10,7 +10,7 @@ const http = require('http');
 // This is the JavaScript controller object for the game
 function CoupController()
 {
-    let m_port = null;
+	let m_port = null;
 	let m_model = null;
 	const action_params = {
 		"tax":{ "name":"tax", "cost":0, "proved_by":["Duke"], "blocked_by":[], "callback": (session, player, action) => {return session.take_coins(player, 3)} },
@@ -24,9 +24,14 @@ function CoupController()
 
 	let handle_setup = function(request, response)
 	{
+		let setup_parameters = {};
+		if ("num_players" in request.query)
+		{
+			setup_parameters["num_players"] = request.query.num_players;
+		}
 		if (m_model)
 		{
-			m_model.setup_session(function(game_state)
+			m_model.setup_session(setup_parameters, function(game_state)
 			{
 				response.type('text/plain');
 				response.send(game_state.entry);
@@ -41,7 +46,7 @@ function CoupController()
 			let paths = request.url.split("/");
 			let method = paths.pop()
 			let session_id = paths.pop();
-			//console.log("ending", session_id);
+			console.log("ending", session_id);
 			m_model.end_session(session_id, (game_state) =>
 			{
 				console.log(game_state);
@@ -73,7 +78,8 @@ function CoupController()
 			let [base, session_id, stage, action] = request._parsedUrl.pathname.split("/");
 			let player_index = request.query.player;
 			let target_index = request.query.target;
-			let action_parameters = Object.create(action_params[action]);	//deep copy
+			let action_callback = action_params[action].callback;
+			let action_parameters = JSON.parse(JSON.stringify(action_params[action]));	//deep copy
 			if (!action_parameters)
 			{
 				response.send("Invalid action");
@@ -88,7 +94,7 @@ function CoupController()
 			{
 				if (error)
 				{
-					response.send(error);
+					response.send({"Error":error});
 					return;
 				}
 				console.log("handle_action [" + action + "]. player_index: " + player_index + ". current turn: " + session.current_turn);
@@ -141,7 +147,7 @@ function CoupController()
 						}
 						else if (action_success_flag == true)
 						{
-							action_parameters.callback(session, player_index, action_parameters).then( (game_state) =>
+							action_callback(session, player_index, action_parameters).then( (game_state) =>
 							{
 								if (game_state.current_stage == 'lose_influence')
 								{
@@ -163,11 +169,11 @@ function CoupController()
 					{
 						if (error == "not enough coins")
 						{
-							response.send("Error:Not enough coins to complete action");
+							response.send({"Error":"Not enough coins to complete action"});
 						}
 						else
 						{
-							response.send(error);
+							response.send({"Error":error});
 						}
 					});
 				}
@@ -188,26 +194,29 @@ function CoupController()
 			m_model.get_session(session_id, function(session, error)
 			{
 				let player_index = session.entry.current_turn;
-				let action_parameters = Object.create(action_params[session.entry.current_action]);
+				let action_callback = action_params[session.entry.current_action].callback;
+				let action_parameters = JSON.parse(JSON.stringify(action_params[session.entry.current_action]));
 				console.log(session_id, "challenge", session.entry.current_action, "player", session.entry.current_turn);
 				if (error)
 				{
-					response.send(error);
+					response.send({"Error":error});
+					return;
 				}
 				else if (session.current_stage != "challenge")
 				{
-					response.send("Error: [" + session.current_stage + "]  is not the correct stage for making challenges");
+					response.send({"Error": "[" + session.current_stage + "]  is not the correct stage for making challenges"});
+					return;
 				}
 				let proved_flag = false;
 				let proved_by = null;
-                if (challenger_index < 0 || challenger_index == undefined)
+				if (challenger_index < 0 || challenger_index == undefined)
 				{
 					if (action_parameters.blocked_by.length == 0)
 					{
 						// Can't be blocked
 						session.advance_stage("resolve_action", action_parameters).then( (game_state) =>
 						{
-							action_parameters.callback(session, player_index, action_parameters).then( (game_state) =>
+							action_callback(session, player_index, action_parameters).then( (game_state) =>
 							{
 								if (game_state.current_stage != 'resolve_action')
 								{
@@ -237,14 +246,16 @@ function CoupController()
 				}
 				else
 				{
-					if (!action_parameters[session.entry.current_action])
+					if (!action_parameters.proved_by)
 					{
-						response.send("Error: Action " + session.entry.current_action + " can not be challenged");
+						const error_string = ("{\"Error\": \"Action " + session.entry.current_action + " can not be challenged\"}");
+						console.log(error_string);
+						response.send(error_string);
 						return;
 					}
-                	for (let proved_card of action_parameters[session.entry.current_action].proved_by)
+					for (let proved_card of action_parameters.proved_by)
 					{
-						if (proved_card in session.players[player_index].cards)
+						if (session.players[player_index].cards.includes(proved_card))
 						{
 							proved_flag = true;
 							proved_by = proved_card;
@@ -260,23 +271,31 @@ function CoupController()
 					if (proved_flag == true)
 					{
 						// Player wins challenge by proving required influence.
-						// Challenger immediately loses influence
-						session.advance_stage("lose_influence", action_parameters).then( (game_state) =>
+						// Resolve action, then challenger immediately loses influence
+						action_callback(session, player_index, action_parameters).then( (game_state) =>
 						{
- 							// Now revealed card is returned to court deck, shuffle and player takes a random replacement card
-							session.lose_influence(player_index, proved_card, false).then( (game_state) =>
+							session.advance_stage("lose_influence", action_parameters).then( (game_state) =>
 							{
-								session.draw_card(player_index).then( (game_state) =>
+ 								// Now revealed card is returned to court deck, shuffle and player takes a random replacement card
+								session.lose_influence(player_index, proved_by, false).then( (game_state) =>
 								{
-									response.send(game_state);
-									return;
+									session.draw_card(null, player_index, 1).then( (game_state) =>
+									{
+										response.send(game_state);
+										return;
+									})
+									.catch( (error) =>
+									{
+										response.send({"Error":error});
+										return;
+									});
 								});
 							});
 						});
 					}
 					else
 					{
-						// Challenger wins challenge
+						// Challenger loses challenge
 						// Player loses challenge by not proving required influence, immediately loses influence and action fails
 						session.advance_stage("lose_influence", action_parameters).then( (game_state) =>
 						{
@@ -299,7 +318,8 @@ function CoupController()
 			m_model.get_session(session_id, function(session, error)
 			{
 				let player_index = session.entry.current_turn;
-				let action_parameters = Object.create(action_params[session.entry.current_action]);
+				let action_callback = action_params[session.entry.current_action].callback;
+				let action_parameters = JSON.parse(JSON.stringify(action_params[session.entry.current_action]));	//deep copy
 				if (session.entry.current_target)
 				{
 					action_parameters.target = session.entry.current_target;
@@ -307,22 +327,22 @@ function CoupController()
 				console.log(session_id, "counteract", session.entry.current_action, "player", session.entry.current_turn);
 				if (error)
 				{
-					response.send(error);
+					response.send({"Error":error});
 				}
 				else if (session.current_stage != "counteract")
 				{
-					const error_message = "Error: [" + session.current_stage + "]  is not the correct stage for taking counteraction";
+					const error_message = {"Error": "[" + session.current_stage + "]  is not the correct stage for taking counteraction"};
 					console.log(error_message);
 					response.send(error_message);
 				}
 				let proved_flag = false;
 				let proved_by = null;
-                if (challenger_index < 0 || challenger_index == undefined)
+				if (challenger_index < 0 || challenger_index == undefined)
 				{
 					// No challengers
 					session.advance_stage("resolve_action", action_parameters).then( (game_state) =>
 					{
-						action_parameters.callback(session, player_index, action_parameters).then( (game_state) =>
+						action_callback(session, player_index, action_parameters).then( (game_state) =>
 						{
 							if (game_state.current_stage != 'resolve_action')
 							{
@@ -379,7 +399,7 @@ function CoupController()
 			}
 			else
 			{
-				response.send(error);
+				response.send({"Error":error});
 			}
 		});
 	}
@@ -393,16 +413,25 @@ function CoupController()
 			{
 				// TODO: better error checking: Only valid if Coup, Assassinate, or Exchange just succeeded.
 				//  if coup or assassinate, there is a target, and reveal should be true. If exchange, reveal is false
+				let action_parameters = JSON.parse(JSON.stringify(action_params[session.entry.current_action]));	//deep copy
 				let player_index = request.query.player;
 				let character = request.query.character;
 				let reveal_flag = false;
+				let lose_influence_target = null;
 				if ("current_target" in session.entry && (session.entry.current_action == "coup" || session.entry.current_action == "assassinate"))
 				{
 					reveal_flag = true;
+					lose_influence_target = session.entry.current_target;
 				}
 				else if (session.entry.current_action == "exchange")
 				{
 					reveal_flag = false;
+					lose_influence_target = session.entry.current_turn;
+				}
+				else if ("challenge_loser" in session.entry)
+				{
+					reveal_flag = true;
+					lose_influence_target = session.entry.challenge_loser;
 				}
 				else
 				{
@@ -418,10 +447,9 @@ function CoupController()
 						return;
 					}
 				}
-				else if (player_index != session.current_target)
+				else if (player_index != lose_influence_target)
 				{
-					console.log(session);
-					response.send("{\"Error\":\"Only targetted player (" + session.current_target + ") may lose influence\"}");
+					response.send("{\"Error\":\"Only targetted player (" + lose_influence_target + ") may lose influence\"}");
 					return;
 				}
 				else if (!character)
@@ -434,7 +462,7 @@ function CoupController()
 					response.send("{\"Error\":\"[" + session.current_stage + "] is not the correct stage for taking action\"}");
 					return;
 				}
-				session.lose_influence(player_index, character, reveal_flag).then( (game_state) =>
+				session.lose_influence(lose_influence_target, character, reveal_flag).then( (game_state) =>
 				{
 					if (session.entry.current_action == "exchange" && game_state.players[player_index].cards.length > game_state.num_cards_before_exchange)
 					{
@@ -444,18 +472,22 @@ function CoupController()
 					}
 					else
 					{
-						let action_parameters = Object.create(action_params[session.entry.current_action]);
 						session.advance_turn(action_parameters).then( (game_state) =>
 						{
 							response.send(game_state);
 							return;
 						});
 					}
+				})
+				.catch( (error) =>
+				{
+					response.send({"Error":error});
+					return;
 				});
 			}
 			else
 			{
-				response.send(error);
+				response.send({"Error":error});
 			}
 		});
 	}

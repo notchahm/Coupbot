@@ -10,7 +10,7 @@ const mongo_mock = require('mongo-mock');
 //const model = function CoupModel()
 class CoupSession
 {
-	constructor(collection, db_entry)
+	constructor(collection, setup_parameters, db_entry)
 	{
 		this.character_list = ["Duke", "Assassin", "Captain", "Ambassador", "Contessa"];
 		this.num_copies = 3;	 //Number of copies of each card -- TODO: make configurable per session with default
@@ -21,7 +21,7 @@ class CoupSession
 		}
 		else
 		{
-			this.setup(collection);
+			this.setup(collection, setup_parameters)
 		}
 	}
 
@@ -75,16 +75,25 @@ class CoupSession
 		return array;
 	}
 
-	setup(collection)
+	setup(collection, setup_parameters)
 	{
 		//As defined in the Coup manual:
 		// Set-Up:
 		let random_id = crypto.randomBytes(8).toString('hex');
+		if (!setup_parameters)
+		{
+			setup_parameters = {num_players:4};
+		}
+		if (!("num_players" in setup_parameters) || setup_parameters.num_players < 2 || setup_parameters.num_players > 6 || !setup_parameters.num_players)
+		{
+			setup_parameters["num_players"] = 4;
+		}
 		let new_session = {
 			_id: random_id,
 			start_timestamp: Date.now(),
 			treasury: 50,
-			num_players: 4,	//TODO read from setup params
+			num_players: setup_parameters.num_players,
+			//num_players: 4,
 			players: [],
 			court_deck: [],
 			revealed_cards: [],
@@ -298,7 +307,6 @@ class CoupSession
 
 	find_card(session, player_index, character_type)
 	{
-		//console.log(session.players, player_index);
 		for (let card_index = 0; card_index < session.players[player_index].cards.length; card_index++)
 		{
 			if (session.players[player_index].cards[card_index] == character_type)
@@ -311,7 +319,7 @@ class CoupSession
 
 	lose_influence(player_index, character_type, reveal_flag)
 	{
-		console.log("lose influence: Player", player_index, character_type);
+		console.log("lose influence: Player", player_index, character_type, reveal_flag);
 		let result_promise = new Promise( (resolve, reject) =>
 		{
 			this.pull_db( (session, error) =>
@@ -327,6 +335,7 @@ class CoupSession
 					if (reveal_flag == true)
 					{
 						session.revealed_cards.push(character_type);
+						session.message = "Player " + player_index + " lost influence " + character_type + ".";
 					}
 					else
 					{
@@ -352,7 +361,7 @@ class CoupSession
 				}
 				else
 				{
-					reject("influence card not found in player's hand");
+					reject("influence card [" + character_type + "] not found in player's hand (" + player_index + ")");
 				}
 			});
 		});
@@ -401,11 +410,13 @@ class CoupSession
 					{
 						if (action_parameters.proved_flag == false)
 						{
-							session.message = "Challenge succeeded, player " + session.current_player + " lose influence";
+							session.message = "Challenge succeeded, player " + session.current_turn + " lose influence";
+							session.challenge_loser = session.current_turn;
 						}
 						else
 						{
-							session.message = "Challenge failed, player " + action_parameters.challenger_index + " lose influence; Player " + session.current_player + " reveals " + action_parameters.proved_by + " and has drawn a new card from court deck";
+							session.challenge_loser = action_parameters.challenger;
+							session.message = "Challenge failed, player " + action_parameters.challenger + " lose influence; Player " + session.current_turn + " reveals " + action_parameters.proved_by + " and has drawn a new card from court deck";
 						}
 					}
 					else if (action_parameters.name == "exchange")
@@ -447,13 +458,17 @@ class CoupSession
 					// Skip players who have no cards left
 					new_turn = (new_turn + 1) % session.num_players;
 				}
-				if (session.current_target)
+				if ("current_target" in session)
 				{
 					delete session.current_target;
 				}
-                if (session.num_cards_before_exchange)
+				if ("num_cards_before_exchange" in session)
 				{
 					delete session.num_cards_before_exchange;
+				}
+				if ("challenge_loser" in session)
+				{
+					delete session.challenge_loser;
 				}
 				session.current_stage = 'action';
 				session.current_action = 'pending';
@@ -556,9 +571,9 @@ class CoupModel
 	}
 
 
-	setup_session = function(callback)
+	setup_session = function(setup_parameters, callback)
 	{
-		let new_session = new CoupSession(this.sessions, null);
+		let new_session = new CoupSession(this.sessions, setup_parameters, null);
 		this.sessions.insertOne(new_session.entry)
 		.then( () =>
 		{
@@ -576,7 +591,7 @@ class CoupModel
 		this.sessions.find({"_id":session_id}).toArray()
 		.then( (session_list) =>
 		{
-			var session = new CoupSession(this.sessions, session_list[0]);
+			var session = new CoupSession(this.sessions, null, session_list[0]);
 			callback(session, null);
 		})
 		.catch((error) =>
